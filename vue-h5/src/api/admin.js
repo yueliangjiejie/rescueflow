@@ -22,16 +22,37 @@ export function helpAction(code, action, body) {
 export function revealHelp(code) {
   return http.get(`/api/admin/helps/${code}/reveal`);
 }
+// 删除/恢复求助(软删除)
+export function deleteHelp(code) {
+  return http.post(`/api/admin/helps/${code}/delete`, {});
+}
+export function restoreHelp(code) {
+  return http.post(`/api/admin/helps/${code}/restore`, {});
+}
+
+// ===== 信息墙 - 供给管理 =====
+export function listAdminOffers(params) {
+  return http.get('/api/admin/offers', { params });
+}
+export function updateOffer(code, body) {
+  return http.put(`/api/admin/offers/${code}`, body);
+}
+export function deleteOffer(code) {
+  return http.post(`/api/admin/offers/${code}/delete`, {});
+}
+export function restoreOffer(code) {
+  return http.post(`/api/admin/offers/${code}/restore`, {});
+}
 
 // ===== 志愿者审批 =====
 export function listVolunteerApps(params) {
   return http.get('/api/volunteers/applications', { params });
 }
-export function approveVolunteer(id) {
-  return http.post(`/api/volunteers/${id}/approve`, {});
+export function approveVolunteer(id, body = {}) {
+  return http.post(`/api/volunteers/${id}/approve`, body);
 }
-export function rejectVolunteer(id) {
-  return http.post(`/api/volunteers/${id}/reject`, {});
+export function rejectVolunteer(id, body = {}) {
+  return http.post(`/api/volunteers/${id}/reject`, body);
 }
 
 // ===== 供需对接 =====
@@ -40,6 +61,12 @@ export function getMatchDashboard() {
 }
 export function listMatches(params) {
   return http.get('/api/matches', { params });
+}
+export function matchOffers(helpCode) {
+  return http.get('/api/offers/match', { params: { help: helpCode } });
+}
+export function createMatch(body) {
+  return http.post('/api/matches', body);
 }
 export const acceptMatch = (code) => http.post(`/api/matches/${code}/accept`, {});
 export const markTransit = (code) => http.post(`/api/matches/${code}/transit`, {});

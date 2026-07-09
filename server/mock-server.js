@@ -241,9 +241,9 @@ app.post('/api/admin/helps/:code/:action', (req, res) => {
   if (!h) return res.status(404).json(ok(null,'未找到'));
   const action = req.params.action;
   if (action === 'transition') h.status = req.body.toStatus;
-  else if (action === 'verify') { h.status = 'verified'; h.credibility = req.body.credibility || 3; }
+  else if (action === 'verify') { h.status = 'verified'; h.credibility = req.body.credibility || 3; h.verifyNote = req.body.note || ''; h.reviewedAt = new Date().toISOString(); }
   else if (action === 'transfer') { h.status = 'transferred'; h.transferredTo = req.body.transferredTo; }
-  else if (action === 'abnormal') { h.status = 'abnormal'; h.abnormalReason = req.body.reason; }
+  else if (action === 'abnormal') { h.status = 'abnormal'; h.abnormalReason = req.body.reason || 'rejected'; h.reviewNote = req.body.reviewNote || ''; h.reviewedAt = new Date().toISOString(); }
   else if (action === 'claim') { h.claimedBy = req.body.actorId || 'me'; }
   else if (action === 'unclaim') { h.claimedBy = null; }
   else if (action === 'resolve') { h.resolved = req.body.resolved !== false; h.outcome = { rescued: req.body.rescued||0, treated: req.body.treated||0, missing: req.body.missing||0, note: req.body.note||'' }; }
@@ -447,11 +447,13 @@ app.get('/api/volunteers/applications', (req,res) => {
   res.json(ok(list));
 });
 app.post('/api/volunteers/:id/approve', (req,res) => {
-  const a = VOL_APPS.find(x=>x._id===req.params.id); if (a) a.applicationStatus=1;
+  const a = VOL_APPS.find(x=>x._id===req.params.id);
+  if (a) { a.applicationStatus=1; a.approveNote = req.body?.note || ''; a.reviewedAt = new Date().toISOString(); }
   res.json(ok(a));
 });
 app.post('/api/volunteers/:id/reject', (req,res) => {
-  const a = VOL_APPS.find(x=>x._id===req.params.id); if (a) a.applicationStatus=2;
+  const a = VOL_APPS.find(x=>x._id===req.params.id);
+  if (a) { a.applicationStatus=2; a.rejectReason = req.body?.reason || ''; a.reviewedAt = new Date().toISOString(); }
   res.json(ok(a));
 });
 
@@ -723,12 +725,56 @@ app.get('/api/offers', (req, res) => {
   res.json(ok({ items:list, total:list.length, page:1, pageSize:50 }));
 });
 
+// 后台:全部供给(含已下架,供管理员管理)
+app.get('/api/admin/offers', (req, res) => {
+  let list = OFFERS.filter(o => !o._removed);
+  if (req.query.type) list = list.filter(o => o.type === req.query.type);
+  if (req.query.status) list = list.filter(o => o.status === req.query.status);
+  res.json(ok({ items: list.map(o => ({ ...o, provider: { ...o.provider, phone: maskP(o.provider?.phone) } })), total: list.length }));
+});
+
+// 后台:编辑供给
+app.put('/api/admin/offers/:code', (req, res) => {
+  const o = OFFERS.find(x => x.code === req.params.code);
+  if (!o) return res.status(404).json(ok(null, '未找到'));
+  if (req.body.title != null) o.title = req.body.title;
+  if (req.body.description != null) o.description = req.body.description;
+  if (req.body.quantity != null) o.quantity = req.body.quantity;
+  if (req.body.unit != null) o.unit = req.body.unit;
+  if (req.body.category != null) o.category = req.body.category;
+  if (req.body.location != null) o.location = req.body.location;
+  if (req.body.status != null) o.status = req.body.status;
+  if (req.body.canDeliver != null) o.canDeliver = req.body.canDeliver;
+  res.json(ok(o, '已更新'));
+});
+
+// 后台:删除/下架供给(软删除,可恢复)
+app.post('/api/admin/offers/:code/delete', (req, res) => {
+  const o = OFFERS.find(x => x.code === req.params.code);
+  if (o) { o._removed = true; o.status = 'removed'; }
+  res.json(ok({ code: req.params.code }, '已下架'));
+});
+
+app.post('/api/admin/offers/:code/restore', (req, res) => {
+  const o = OFFERS.find(x => x.code === req.params.code);
+  if (o) { o._removed = false; o.status = 'available'; }
+  res.json(ok({ code: req.params.code }, '已恢复'));
+});
+
 app.get('/api/offers/match', (req, res) => {
   const help = helps.find(h => h.code === req.query.help);
   if (!help) return res.json(ok({ help:null, matches:[] }));
+  // 按需求关键词给候选供给打匹配分,排序后返回
+  const needText = ((help.content?.summary || '') + ' ' + (help.content?.needs || []).join(' ')).toLowerCase();
+  const candidates = OFFERS.filter(o => o.status === 'available').map(o => {
+    const offerText = ((o.title || '') + ' ' + (o.category || '') + ' ' + (o.description || '')).toLowerCase();
+    let score = 0;
+    needText.split(/\s+/).filter(w => w.length >= 2).forEach(w => { if (offerText.includes(w)) score += 10; });
+    return { ...o, _matchScore: score, provider: { ...o.provider, phone: maskP(o.provider?.phone) } };
+  }).sort((a, b) => b._matchScore - a._matchScore).slice(0, 8);
   res.json(ok({
-    help:{ code:help.code, summary:help.content?.summary, urgency:help.urgency },
-    matches: OFFERS.filter(o => o.status==='available').slice(0,5),
+    help: { code: help.code, summary: help.content?.summary, urgency: help.urgency, needs: help.content?.needs || [] },
+    matches: candidates,
   }));
 });
 

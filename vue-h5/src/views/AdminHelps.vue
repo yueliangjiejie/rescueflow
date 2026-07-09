@@ -27,7 +27,7 @@
             <div class="meta">
               <van-icon name="location-o" />{{ h.location?.address || h.location?.raw || '位置未填' }}
             </div>
-            <!-- 联系电话:管理员点击查看明文 + 拨打(列表默认脱敏) -->
+            <!-- 联系电话:管理员点击查看明文 + 拨打 -->
             <div class="phone-row">
               <van-icon name="phone-o" />
               <span v-if="h._plainPhone" class="plain-phone">{{ h._plainPhone }}</span>
@@ -41,18 +41,38 @@
             <div v-if="h.person?.specialPersons?.length" class="meta">
               <van-tag v-for="s in h.person.specialPersons" :key="s" type="warning" size="mini">{{ spLabel(s) }}</van-tag>
             </div>
+            <!-- 审核意见展示 -->
+            <div v-if="h.verifyNote" class="review-note success">✓ 核实意见：{{ h.verifyNote }}</div>
+            <div v-if="h.reviewNote" class="review-note danger">✗ 驳回意见：{{ h.reviewNote }}</div>
           </template>
         </van-cell>
 
         <!-- 操作按钮 -->
         <div class="actions" v-if="h.status==='pending' || h.status==='verified'">
-          <van-button v-if="h.status==='pending'" size="small" type="primary" :loading="h._acting" @click="act(h,'verify')">核实通过</van-button>
+          <van-button v-if="h.status==='pending'" size="small" type="primary" @click="openVerify(h)">核实通过</van-button>
+          <van-button v-if="h.status==='pending'" size="small" type="danger" plain @click="openReject(h)">驳回</van-button>
           <van-button v-if="h.status==='verified'" size="small" type="warning" :loading="h._acting" @click="act(h,'transfer')">转交</van-button>
           <van-button size="small" type="success" :loading="h._acting" @click="act(h,'transition','done')">标记完成</van-button>
         </div>
       </van-cell-group>
     </div>
     <van-empty v-else-if="!loading" description="暂无求助" />
+
+    <!-- 核实弹窗 -->
+    <van-dialog v-model:show="verifyShow" title="核实通过" show-cancel-button :before-close="beforeVerifyClose">
+      <div style="padding: 12px 16px;">
+        <p class="muted s12" style="margin:0 0 8px;">为求助 {{ verifyForm.code }} 填写核实意见</p>
+        <van-field v-model="verifyForm.note" type="textarea" rows="2" placeholder="如:已电话确认,情况属实" />
+      </div>
+    </van-dialog>
+
+    <!-- 驳回弹窗 -->
+    <van-dialog v-model:show="rejectShow" title="驳回求助" show-cancel-button :before-close="beforeRejectClose">
+      <div style="padding: 12px 16px;">
+        <p class="muted s12" style="margin:0 0 8px;">为求助 {{ rejectForm.code }} 填写驳回理由(用户可见)</p>
+        <van-field v-model="rejectForm.reviewNote" type="textarea" rows="3" placeholder="如:信息不完整/重复登记/已自行解决" />
+      </div>
+    </van-dialog>
   </div>
 </template>
 
@@ -72,8 +92,9 @@ const statuses = [
   { value: 'verified', label: '已核实' },
   { value: 'in_progress', label: '处理中' },
   { value: 'done', label: '已完成' },
+  { value: 'abnormal', label: '已驳回' },
 ];
-const statusLabel = (s) => ({ pending:'待核实', verified:'已核实', transferred:'已转交', in_progress:'处理中', done:'已完成', abnormal:'异常' }[s] || s);
+const statusLabel = (s) => ({ pending:'待核实', verified:'已核实', transferred:'已转交', in_progress:'处理中', done:'已完成', abnormal:'已驳回' }[s] || s);
 const statusType = (s) => ({ pending:'warning', verified:'success', transferred:'primary', in_progress:'', done:'default', abnormal:'danger' }[s] || 'default');
 const spLabel = (s) => SPECIAL_PERSON_LABELS[s] || s;
 const fmt = (t) => t ? new Date(t).toLocaleString('zh-CN', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }) : '';
@@ -102,7 +123,7 @@ async function act(h, action, toStatus) {
   finally { h._acting = false; }
 }
 
-// 查看明文联系方式(管理员核实用,后端留痕记录)
+// 查看明文联系方式
 async function reveal(h) {
   h._revealing = true;
   try {
@@ -112,6 +133,45 @@ async function reveal(h) {
     if (!h._plainPhone) showToast('无电话');
   } catch (e) { showToast(e.message || '查看失败'); }
   finally { h._revealing = false; }
+}
+
+// 核实弹窗
+const verifyShow = ref(false);
+const verifyForm = reactive({ code:'', note:'' });
+function openVerify(h) {
+  verifyForm.code = h.code;
+  verifyForm.note = '';
+  verifyShow.value = true;
+}
+async function beforeVerifyClose(action) {
+  if (action !== 'confirm') return true;
+  try {
+    await helpAction(verifyForm.code, 'verify', { note: verifyForm.note });
+    showSuccessToast('已核实');
+    verifyShow.value = false;
+    load();
+    return true;
+  } catch (e) { showToast(e.message || '操作失败'); return false; }
+}
+
+// 驳回弹窗
+const rejectShow = ref(false);
+const rejectForm = reactive({ code:'', reviewNote:'' });
+function openReject(h) {
+  rejectForm.code = h.code;
+  rejectForm.reviewNote = '';
+  rejectShow.value = true;
+}
+async function beforeRejectClose(action) {
+  if (action !== 'confirm') return true;
+  if (!rejectForm.reviewNote.trim()) { showToast('请填写驳回理由'); return false; }
+  try {
+    await helpAction(rejectForm.code, 'abnormal', { reason: 'rejected', reviewNote: rejectForm.reviewNote });
+    showSuccessToast('已驳回');
+    rejectShow.value = false;
+    load();
+    return true;
+  } catch (e) { showToast(e.message || '操作失败'); return false; }
 }
 
 onMounted(load);
@@ -128,7 +188,10 @@ onMounted(load);
 .plain-phone { font-weight:600; color:#ee0a24; font-size:15px; letter-spacing:0.5px; }
 .call-btn { color:#07c160; text-decoration:none; font-weight:600; border:1px solid #07c160; border-radius:4px; padding:2px 8px; font-size:12px; }
 .call-btn:active { opacity:0.6; }
+.review-note { font-size:12px; margin-top:6px; padding:4px 8px; border-radius:4px; line-height:1.5; }
+.review-note.success { background:#f6ffed; color:#52c41a; }
+.review-note.danger { background:#fff1f0; color:#ee0a24; }
 .actions { display:flex; gap:6px; padding: 8px 12px; border-top: 1px dashed #eee; flex-wrap:wrap; }
-.s11 { font-size:11px; }
+.s11 { font-size:11px; } .s12 { font-size:12px; }
 .muted { color:#969799; } .danger { color:#ee0a24; }
 </style>

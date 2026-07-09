@@ -30,7 +30,15 @@
         <div class="entry-icon" style="background:#e6f7ff; color:#1989fa;"><van-icon name="exchange" /></div>
         <div class="entry-body">
           <div class="entry-title">供需对接</div>
-          <div class="entry-desc">查看缺口/闲置供给、推进对接进度</div>
+          <div class="entry-desc">智能撮合需求与供给、推进对接进度</div>
+        </div>
+        <van-icon name="arrow" color="#c8c9cc" />
+      </div>
+      <div class="entry-card" @click="$router.push('/admin/feed')">
+        <div class="entry-icon" style="background:#fff7e6; color:#ff976a;"><van-icon name="orders-o" /></div>
+        <div class="entry-body">
+          <div class="entry-title">信息墙管理</div>
+          <div class="entry-desc">管理需求和供给内容、下架/恢复</div>
         </div>
         <van-icon name="arrow" color="#c8c9cc" />
       </div>
