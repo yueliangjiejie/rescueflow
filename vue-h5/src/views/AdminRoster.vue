@@ -29,34 +29,28 @@
     </van-pull-refresh>
 
     <van-empty v-if="!events.length && !loading" description="暂无群体事件">
-      <van-button type="danger" size="small" @click="showCreate = true">创建群体事件</van-button>
+      <van-button type="danger" size="small" @click="$router.push('/roster-report')">上报群体事件</van-button>
     </van-empty>
 
     <div style="padding: 12px;">
-      <van-button type="danger" block icon="plus" @click="showCreate = true">创建群体事件</van-button>
+      <van-button type="danger" block icon="plus" @click="$router.push('/roster-report')">上报群体事件</van-button>
+      <p class="muted s11" style="text-align:center; margin-top:6px;">
+        详细登记被困群体信息,平台将启动应急协调
+      </p>
     </div>
 
-    <!-- 创建事件弹窗 -->
-    <van-dialog v-model:show="showCreate" title="创建群体事件" show-cancel-button :before-close="beforeCreate">
-      <div style="padding: 12px 16px;">
-        <van-field v-model="createForm.name" label="事件名称" placeholder="如:XX中学师生被困" required />
-        <van-field v-model="createForm.scene" label="场景描述" type="textarea" rows="2" placeholder="如:洪水围困,需撤离安置" />
-      </div>
-    </van-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { showToast, showSuccessToast } from 'vant';
-import { listRosterEvents, createRosterEvent } from '../api/admin.js';
+import { showToast } from 'vant';
+import { listRosterEvents } from '../api/admin.js';
 
 const router = useRouter();
 const events = ref([]);
 const loading = ref(false);
-const showCreate = ref(false);
-const createForm = reactive({ name: '', scene: '' });
 
 async function load() {
   loading.value = true;
@@ -69,19 +63,6 @@ async function load() {
 
 function goEvent(ev) {
   router.push(`/admin/roster/${ev._id}`);
-}
-
-const createFormSubmit = reactive({ name: '', scene: '' });
-async function beforeCreate(action) {
-  if (action !== 'confirm') return true;
-  if (!createForm.name.trim()) { showToast('请填写事件名称'); return false; }
-  try {
-    await createRosterEvent({ name: createForm.name.trim(), scene: createForm.scene.trim() });
-    showSuccessToast('已创建');
-    showCreate.value = false;
-    load();
-    return true;
-  } catch (e) { showToast(e.message || '创建失败'); return false; }
 }
 
 onMounted(load);

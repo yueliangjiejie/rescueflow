@@ -80,6 +80,10 @@
           <div class="quick-icon" style="background:#f0f5ff; color:#1989fa;"><van-icon name="service-o" /></div>
           <span>报平安/寻亲</span>
         </div>
+        <div class="quick-item" @click="$router.push('/roster-report')">
+          <div class="quick-icon" style="background:#fff1f0; color:#ee0a24;"><van-icon name="warning-o" /></div>
+          <span>群体事件上报</span>
+        </div>
         <div class="quick-item" @click="$router.push('/my-matches')">
           <div class="quick-icon" style="background:#f9f0ff; color:#722ed1;"><van-icon name="medal-o" /></div>
           <span>我的认领</span>

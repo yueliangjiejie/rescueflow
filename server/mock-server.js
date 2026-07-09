@@ -996,10 +996,33 @@ app.get('/api/rosters/events', (req, res) => {
   res.json(ok({ items: events, total: events.length }));
 });
 app.post('/api/rosters/events', (req, res) => {
+  const b = req.body || {};
+  if (!b.name || !b.name.trim()) return res.status(400).json(ok(null, '请填写事件名称'));
   const e = { _id:'re-'+Date.now(), code:'ROSTER-EVENT-'+String(100+ROSTER_EVENTS.length).padStart(3,'0'),
-    name:req.body.name, scene:req.body.scene||'', totalRegistered:0, shelterId:req.body.shelterId||null, status:'active', createdAt:new Date().toISOString() };
+    name: b.name.trim(),
+    type: b.type || 'flood',                              // 灾害类型:flood/earthquake/fire/landslide/other
+    scene: b.scene || '',                                  // 现场情况描述
+    urgency: b.urgency || 'high',                          // 紧急度:critical/high/medium
+    location: {                                            // 地点(含坐标,可上地图)
+      address: b.address || '',
+      coordinates: b.coordinates && b.coordinates.length === 2 ? b.coordinates : [],
+      detail: b.locationDetail || '',                      // 详细位置(如:XX中学3号教学楼)
+    },
+    groupType: b.groupType || 'school',                    // 群体类型:school/community/factory/hospital/village/other
+    estimatedCount: Number(b.estimatedCount) || 0,         // 预估被困人数
+    totalRegistered: 0,                                    // 已登记人数(动态更新)
+    contact: {                                             // 上报人信息
+      name: b.contactName || '', phone: b.contactPhone || '', role: b.contactRole || '',
+    },
+    needs: b.needs || [],                                  // 紧急需求(如:['食物','药品','转移'])
+    hasSpecialGroups: b.hasSpecialGroups || [],            // 特殊群体(如:['老人','儿童','孕妇','伤员'])
+    shelterId: b.shelterId || null,                        // 对接安置点
+    status: 'reported',                                    // reported(已上报)→active(已介入)→resolved(已解决)
+    createdAt: new Date().toISOString(),
+    reportedBy: b.contactName || '匿名',
+  };
   ROSTER_EVENTS.unshift(e);
-  res.status(201).json(ok(e, '事件已创建'));
+  res.status(201).json(ok(e, '群体事件已上报,平台将尽快介入协调'));
 });
 
 // 名单查询(支持 status/group 筛选)
