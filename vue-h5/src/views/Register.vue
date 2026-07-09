@@ -127,13 +127,18 @@
 
     <!-- 位置 -->
     <van-cell-group inset title="位置信息">
-      <van-cell title="自动定位" is-link @click="locate">
+      <van-cell title="自动定位" is-link @click="locate" :is-loading="locating">
         <template #value>
-          <span v-if="form.location.raw" class="muted">{{ form.location.raw }}</span>
+          <van-tag v-if="form.location.raw && form.location.lng" type="success" size="medium">✓ 已定位</van-tag>
+          <span v-else-if="form.location.raw" class="muted">{{ form.location.raw }}</span>
+          <span v-else-if="locating" class="muted">定位中...</span>
           <span v-else class="muted">点击获取定位</span>
         </template>
       </van-cell>
-      <van-field v-model="form.location.raw" label="详细地址" placeholder="精确到门牌/村组" />
+      <van-field v-model="form.location.raw" label="详细地址" placeholder="定位成功会自动填入,也可手填精确到门牌/村组" />
+      <p v-if="form.location.lng" class="muted coords-hint">
+        坐标: {{ form.location.lat?.toFixed(5) }}, {{ form.location.lng?.toFixed(5) }}(精度±{{ Math.round(form.location.accuracy||0) }}米)
+      </p>
     </van-cell-group>
 
     <!-- 求助人信息 -->
@@ -371,18 +376,50 @@ async function onUpload(read) {
 }
 
 // ---- 定位 ----
+const locating = ref(false);
 async function locate() {
   if (!navigator.geolocation) return showFailToast('设备不支持定位');
+  if (!navigator.permissions?.query) {
+    // 非 https / 非 localhost 环境下 geolocation 直接不可用
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+      return showFailToast('定位需在 https 或 localhost 环境下使用,请手填地址');
+    }
+  }
+  locating.value = true;
+  showToast('正在定位...');
   navigator.geolocation.getCurrentPosition(
-    (pos) => {
+    async (pos) => {
       form.location.lng = pos.coords.longitude;
       form.location.lat = pos.coords.latitude;
       form.location.accuracy = pos.coords.accuracy;
-      if (!form.location.raw) form.location.raw = `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
+      // 尝试逆地理编码(经纬度→中文地址),失败则回退显示坐标
+      const addr = await reverseGeocode(pos.coords.latitude, pos.coords.longitude);
+      form.location.raw = addr || `${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
+      locating.value = false;
+      showSuccessToast('定位成功' + (addr ? '' : '(地址需手填)'));
     },
-    (e) => showFailToast('定位失败,请手填地址:' + e.message),
-    { enableHighAccuracy: true, timeout: 8000 }
+    (e) => {
+      locating.value = false;
+      const tip = ({
+        1: '您拒绝了定位权限,请在浏览器设置中允许,或手填地址',
+        2: '定位不可用(设备/网络问题),请手填地址',
+        3: '定位超时,请重试或手填地址',
+      }[e.code]) || ('定位失败:' + e.message);
+      showFailToast(tip);
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
   );
+}
+
+// 逆地理编码:用高德免费 REST API(无需 key 的降级方案失败时回退坐标)
+// 注意:生产环境应配置正式 key;此处为方便预览,失败不阻塞
+async function reverseGeocode(lat, lng) {
+  try {
+    const res = await fetch(`https://restapi.amap.com/v3/geocode/regeo?location=${lng},${lat}&key=amap_demo&extensions=base`);
+    const j = await res.json();
+    if (j.status === '1' && j.regeocode?.formatted_address) return j.regeocode.formatted_address;
+  } catch {}
+  return '';
 }
 
 // ---- 提交(含断网补传)----
@@ -462,4 +499,6 @@ onUnmounted(() => window.removeEventListener('online', onOnline));
 .active :deep(.van-grid-item__text) { color: var(--rf-danger); font-weight: 600; }
 .tag-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .tag { padding: 6px 12px; }
+.muted { color: #969799; }
+.coords-hint { font-size: 11px; color: #969799; margin: 6px 14px 8px; }
 </style>

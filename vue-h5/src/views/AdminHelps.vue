@@ -26,7 +26,17 @@
             <div class="summary">{{ h.content?.summary || h.content?.rawText || '(无描述)' }}</div>
             <div class="meta">
               <van-icon name="location-o" />{{ h.location?.address || h.location?.raw || '位置未填' }}
-              <span v-if="h.person?.phone" style="margin-left:8px;">· {{ h.person.phone }}</span>
+            </div>
+            <!-- 联系电话:管理员点击查看明文 + 拨打(列表默认脱敏) -->
+            <div class="phone-row">
+              <van-icon name="phone-o" />
+              <span v-if="h._plainPhone" class="plain-phone">{{ h._plainPhone }}</span>
+              <span v-else class="muted">{{ h.person?.phone || '无电话' }}</span>
+              <van-button v-if="!h._plainPhone && h.person?.phone" size="mini" plain type="primary" :loading="h._revealing" @click="reveal(h)">查看明文</van-button>
+              <template v-if="h._plainPhone">
+                <a :href="'tel:' + h._plainPhone" class="call-btn"><van-icon name="phone" /> 拨打</a>
+                <span v-if="h._plainName" class="muted s12">· {{ h._plainName }}</span>
+              </template>
             </div>
             <div v-if="h.person?.specialPersons?.length" class="meta">
               <van-tag v-for="s in h.person.specialPersons" :key="s" type="warning" size="mini">{{ spLabel(s) }}</van-tag>
@@ -49,7 +59,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
 import { showToast, showSuccessToast } from 'vant';
-import { listHelps, helpAction } from '../api/admin.js';
+import { listHelps, helpAction, revealHelp } from '../api/admin.js';
 import { SPECIAL_PERSON_LABELS } from '@rescueflow/shared';
 
 const list = ref([]);
@@ -75,7 +85,7 @@ async function load() {
     if (filter.status) params.status = filter.status;
     if (filter.q) params.q = filter.q;
     const res = await listHelps(params);
-    list.value = (res.data.items || []).map(h => ({ ...h, _acting: false }));
+    list.value = (res.data.items || []).map(h => ({ ...h, _acting: false, _revealing: false, _plainPhone: '', _plainName: '' }));
   } catch (e) { showToast(e.message || '加载失败'); }
   finally { loading.value = false; }
 }
@@ -92,6 +102,18 @@ async function act(h, action, toStatus) {
   finally { h._acting = false; }
 }
 
+// 查看明文联系方式(管理员核实用,后端留痕记录)
+async function reveal(h) {
+  h._revealing = true;
+  try {
+    const res = await revealHelp(h.code);
+    h._plainPhone = res.data?.phone || '';
+    h._plainName = res.data?.name || '';
+    if (!h._plainPhone) showToast('无电话');
+  } catch (e) { showToast(e.message || '查看失败'); }
+  finally { h._revealing = false; }
+}
+
 onMounted(load);
 </script>
 
@@ -102,6 +124,10 @@ onMounted(load);
 .code { font-size:12px; color:#1989fa; font-weight:600; }
 .summary { font-size:14px; color:#323233; margin: 4px 0; line-height:1.5; }
 .meta { font-size:12px; color:#969799; margin-top:4px; }
+.phone-row { display:flex; align-items:center; gap:6px; margin-top:6px; font-size:13px; flex-wrap:wrap; }
+.plain-phone { font-weight:600; color:#ee0a24; font-size:15px; letter-spacing:0.5px; }
+.call-btn { color:#07c160; text-decoration:none; font-weight:600; border:1px solid #07c160; border-radius:4px; padding:2px 8px; font-size:12px; }
+.call-btn:active { opacity:0.6; }
 .actions { display:flex; gap:6px; padding: 8px 12px; border-top: 1px dashed #eee; flex-wrap:wrap; }
 .s11 { font-size:11px; }
 .muted { color:#969799; } .danger { color:#ee0a24; }

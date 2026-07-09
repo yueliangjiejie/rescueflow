@@ -18,6 +18,10 @@ export function listHelps(params) {
 export function helpAction(code, action, body) {
   return http.post(`/api/admin/helps/${code}/${action}`, body);
 }
+// 查看明文联系方式(管理员核实用,后端留痕)
+export function revealHelp(code) {
+  return http.get(`/api/admin/helps/${code}/reveal`);
+}
 
 // ===== 志愿者审批 =====
 export function listVolunteerApps(params) {
