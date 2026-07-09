@@ -15,7 +15,11 @@ const router = createRouter({
     { path: '/safety', name: 'safety', component: () => import('./views/Safety.vue') },
     { path: '/feed', name: 'feed', component: () => import('./views/Feed.vue') },
     { path: '/offer', name: 'offer', component: () => import('./views/Offer.vue') },
+    // —— 修复：补全缺失路由,让智能录入/我的/我发布的求助 可达 ——
+    { path: '/intake', name: 'intake', component: () => import('./views/Intake.vue') },
+    { path: '/my', name: 'my', component: () => import('./views/My.vue') },
     { path: '/my-matches', name: 'myMatches', component: () => import('./views/MyMatches.vue') },
+    { path: '/my-helps', name: 'myHelps', component: () => import('./views/MyHelps.vue') },
   ],
 });
 

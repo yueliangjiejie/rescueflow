@@ -414,6 +414,12 @@ async function submit() {
   };
   try {
     const res = await submitHelp(payload);
+    // 记住我发布的求助编号,供"我发布的求助"页读取
+    try {
+      const myHelps = JSON.parse(localStorage.getItem('rf_my_helps') || '[]');
+      myHelps.unshift({ code: res.data.code, at: Date.now(), summary: form.rawText.slice(0, 40) });
+      localStorage.setItem('rf_my_helps', JSON.stringify(myHelps.slice(0, 50)));
+    } catch {}
     showSuccessToast('提交成功');
     router.replace({ name: 'success', params: { code: res.data.code } });
   } catch (e) {

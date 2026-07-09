@@ -28,3 +28,7 @@ Thumbs.db
 
 # macOS 压缩包残留
 __MACOSX/
+_screenshot2.js
+_verify.js
+_*.js
+归档.zip

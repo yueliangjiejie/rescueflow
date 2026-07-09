@@ -49,6 +49,12 @@ const myPhone = ref(localStorage.getItem('rf_phone') || '');
 const isAdmin = ref(localStorage.getItem('rf_admin') === '1');
 const myHelpsCount = ref(0);
 
+function refreshHelpsCount() {
+  try {
+    myHelpsCount.value = JSON.parse(localStorage.getItem('rf_my_helps') || '[]').length;
+  } catch { myHelpsCount.value = 0; }
+}
+
 function savePhone() {
   if (myPhone.value) {
     localStorage.setItem('rf_phone', myPhone.value);
@@ -91,6 +97,7 @@ onMounted(() => {
     myId.value = 'u' + Date.now();
     localStorage.setItem('rf_uid', myId.value);
   }
+  refreshHelpsCount();
 });
 </script>
 

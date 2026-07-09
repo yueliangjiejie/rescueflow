@@ -49,7 +49,8 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { showToast } from 'vant';
-import { getMatches, advanceMatch } from '../api/help.js';
+import http from '../api/http.js';
+import { advanceMatch } from '../api/help.js';
 
 const items = ref([]);
 const loading = ref(true);
@@ -63,12 +64,9 @@ async function load() {
   try {
     const myId = localStorage.getItem('rf_uid');
     if (!myId) { items.value = []; return; }
-    // 用 fulfillerId 查询我认领的
-    const res = await getMatches(myId); // 复用 getMatches,传 myId 当 fulfillerId
-    // getMatches 默认按 helpCode 查,这里需要按 fulfillerId
-    // 直接调 list 接口
-    const r2 = await import('../api/http.js').then(({default: http}) => http.get('/api/matches', { params: { fulfillerId: myId, pageSize: 100 } }));
-    items.value = (r2.data.items || []).sort((a,b) => new Date(b.requestedAt) - new Date(a.requestedAt));
+    // 修复:用 fulfillerId 查询我认领的对接记录(之前误把 myId 当 helpCode 查,发了废请求)
+    const res = await http.get('/api/matches', { params: { fulfillerId: myId, pageSize: 100 } });
+    items.value = (res.data.items || []).sort((a,b) => new Date(b.requestedAt) - new Date(a.requestedAt));
   } catch(e) { showToast('加载失败'); }
   finally { loading.value = false; }
 }
