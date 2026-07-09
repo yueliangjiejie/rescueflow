@@ -1,0 +1,4 @@
+body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f0f2f5; }
+.muted { color: #909399; }
+.danger { color: #f56c6c; }
+.danger-row { background: #fef0f0 !important; }

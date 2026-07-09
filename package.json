@@ -1,0 +1,24 @@
+{
+  "name": "rescueflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RescueFlow —— AI 应急信息协同平台(信息登记/整理/核实/流转/留痕)",
+  "license": "Apache-2.0",
+  "workspaces": [
+    "shared",
+    "server",
+    "vue-h5",
+    "vue-admin"
+  ],
+  "scripts": {
+    "dev:server": "npm -w server run dev",
+    "dev:h5": "npm -w vue-h5 run dev",
+    "dev:admin": "npm -w vue-admin run dev",
+    "build:server": "npm -w server run build",
+    "build:h5": "npm -w vue-h5 run build",
+    "build:admin": "npm -w vue-admin run build"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
