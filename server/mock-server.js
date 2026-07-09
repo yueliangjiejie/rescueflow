@@ -952,6 +952,219 @@ app.get('/api/audit/verify', (_req, res) => res.json(ok({ ok:true, brokenAt:null
 // 上传文件静态访问
 app.use('/uploads', express.static('/tmp/rescueflow-uploads'));
 
+// ============================================================
+// 群体应急闭环管理：名单系统 + 物资台账 + 责任区 + 多维记录
+// 应对"625名师生被困"等群体被困场景
+// ============================================================
+
+// ===== ① 群体名单系统 =====
+const ROSTER_EVENTS = [
+  { _id:'re-1', code:'ROSTER-EVENT-001', name:'XX中学师生被困', scene:'洪水围困,校内625名师生需撤离安置', totalRegistered:625, shelterId:'shelter-1', status:'active', createdAt:new Date(Date.now()-86400000).toISOString() },
+];
+// 生成 ~40 条模拟名单(5栋楼,每栋8寝室,覆盖各状态)
+const ROSTER_PERSONS = [];
+const BUILDINGS = ['1栋','2栋','3栋','4栋','5栋'];
+const STATUSES_W = ['trapped','evacuated','safe','missing'];
+const SURNAMES = ['张','王','李','刘','陈','杨','黄','周','吴','徐'];
+const rStatusPool = ['trapped','trapped','evacuated','evacuated','safe','missing']; // 加权
+let rpSeq = 0;
+BUILDINGS.forEach((b, bi) => {
+  for (let i = 1; i <= 8; i++) {
+    rpSeq++;
+    const status = rStatusPool[Math.floor(Math.random()*rStatusPool.length)];
+    const sn = SURNAMES[Math.floor(Math.random()*SURNAMES.length)];
+    ROSTER_PERSONS.push({
+      _id:'rp-'+rpSeq, eventId:'re-1',
+      name:`${sn}同学${rpSeq}`, phone: rpSeq % 3 === 0 ? `135${String(300000+rpSeq).padStart(6,'0')}` : '',
+      status, group:`${b}${i}01寝室`, building:b, specialTag: i===1 && bi===0 ? '受伤' : '',
+      shelterId: status==='evacuated'||status==='safe' ? 'shelter-1' : null,
+      checkedBy: status!=='trapped' ? '学生会主席' : '', checkedAt: status!=='trapped' ? new Date(Date.now()-3600000*rpSeq).toISOString() : null,
+      notes: status==='missing' ? '寝室检查未发现,电话不通' : '', createdAt:new Date(Date.now()-86400000+rpSeq*60000).toISOString(),
+    });
+  }
+});
+
+// 群体事件列表
+app.get('/api/rosters/events', (req, res) => {
+  const events = ROSTER_EVENTS.map(e => {
+    const persons = ROSTER_PERSONS.filter(p => p.eventId === e._id);
+    return { ...e, totalRegistered: persons.length || e.totalRegistered,
+      totalEvacuated: persons.filter(p=>['evacuated','safe'].includes(p.status)).length,
+      totalTrapped: persons.filter(p=>p.status==='trapped').length,
+      totalMissing: persons.filter(p=>p.status==='missing').length };
+  });
+  res.json(ok({ items: events, total: events.length }));
+});
+app.post('/api/rosters/events', (req, res) => {
+  const e = { _id:'re-'+Date.now(), code:'ROSTER-EVENT-'+String(100+ROSTER_EVENTS.length).padStart(3,'0'),
+    name:req.body.name, scene:req.body.scene||'', totalRegistered:0, shelterId:req.body.shelterId||null, status:'active', createdAt:new Date().toISOString() };
+  ROSTER_EVENTS.unshift(e);
+  res.status(201).json(ok(e, '事件已创建'));
+});
+
+// 名单查询(支持 status/group 筛选)
+app.get('/api/rosters/events/:id/persons', (req, res) => {
+  let list = ROSTER_PERSONS.filter(p => p.eventId === req.params.id);
+  if (req.query.status) list = list.filter(p => p.status === req.query.status);
+  if (req.query.group) list = list.filter(p => p.group === req.query.group || p.building === req.query.group);
+  if (req.query.q) { const rx = new RegExp(req.query.q); list = list.filter(p => rx.test(p.name) || rx.test(p.phone||'')); }
+  res.json(ok({ items: list, total: list.length }));
+});
+
+// 批量导入名单
+app.post('/api/rosters/events/:id/persons', (req, res) => {
+  const persons = Array.isArray(req.body) ? req.body : (req.body.persons || []);
+  const created = [];
+  persons.forEach(p => {
+    rpSeq++;
+    const np = { _id:'rp-'+rpSeq, eventId:req.params.id, name:p.name, phone:p.phone||'', status:p.status||'trapped',
+      group:p.group||'', building:(p.group||'').split(/\d/)[0]||'', specialTag:p.specialTag||'', shelterId:null,
+      checkedBy:'', checkedAt:null, notes:p.notes||'', createdAt:new Date().toISOString() };
+    ROSTER_PERSONS.push(np); created.push(np._id);
+  });
+  res.status(201).json(ok({ created: created.length, ids: created }, `已导入${created.length}人`));
+});
+
+// 更新单人状态(在困→已撤离→已脱险)
+app.put('/api/rosters/persons/:id', (req, res) => {
+  const p = ROSTER_PERSONS.find(x => x._id === req.params.id);
+  if (!p) return res.status(404).json(ok(null, '未找到'));
+  if (req.body.status) { p.status = req.body.status; p.checkedBy = req.body.checkedBy || '管理员'; p.checkedAt = new Date().toISOString(); }
+  if (req.body.shelterId !== undefined) p.shelterId = req.body.shelterId;
+  if (req.body.notes !== undefined) p.notes = req.body.notes;
+  res.json(ok(p, '已更新'));
+});
+
+// 实时统计(按状态 + 按分组)
+app.get('/api/rosters/events/:id/stats', (req, res) => {
+  const persons = ROSTER_PERSONS.filter(p => p.eventId === req.params.id);
+  const byStatus = { trapped:0, evacuated:0, safe:0, missing:0 };
+  const byGroup = {};
+  persons.forEach(p => {
+    byStatus[p.status] = (byStatus[p.status]||0) + 1;
+    const g = p.building || p.group || '未分组';
+    if (!byGroup[g]) byGroup[g] = { total:0, trapped:0, evacuated:0, safe:0, missing:0 };
+    byGroup[g].total++; byGroup[g][p.status]++;
+  });
+  res.json(ok({ total: persons.length, byStatus, byGroup, evacRate: persons.length ? Math.round((byStatus.evacuated+byStatus.safe)/persons.length*100) : 0 }));
+});
+
+// ===== ② 物资分发台账 =====
+const DIST_STANDARDS = [
+  { _id:'ds-1', eventId:'re-1', item:'面包', perPerson:1, unit:'个', createdAt:new Date().toISOString() },
+  { _id:'ds-2', eventId:'re-1', item:'矿泉水', perPerson:0.5, unit:'瓶', createdAt:new Date().toISOString() },
+];
+const DISTRIBUTIONS = [
+  { _id:'dist-1', eventId:'re-1', group:'1栋', item:'面包', plannedQty:40, distributedQty:40, distributedTo:40, distributedBy:'后勤组张老师', distributedAt:new Date(Date.now()-7200000).toISOString(), note:'第一天分发,已覆盖1栋全部' },
+  { _id:'dist-2', eventId:'re-1', group:'1栋', item:'矿泉水', plannedQty:20, distributedQty:20, distributedTo:40, distributedBy:'后勤组张老师', distributedAt:new Date(Date.now()-7200000).toISOString(), note:'每人半瓶' },
+  { _id:'dist-3', eventId:'re-1', group:'2栋', item:'面包', plannedQty:40, distributedQty:25, distributedTo:25, distributedBy:'后勤组李老师', distributedAt:new Date(Date.now()-3600000).toISOString(), note:'部分寝室未发' },
+  { _id:'dist-4', eventId:'re-1', group:'3栋', item:'面包', plannedQty:40, distributedQty:0, distributedTo:0, distributedBy:'', distributedAt:null, note:'' },
+];
+
+// 分配标准
+app.get('/api/distributions/standards', (req, res) => {
+  res.json(ok(DIST_STANDARDS.filter(s => !req.query.eventId || s.eventId === req.query.eventId)));
+});
+app.post('/api/distributions/standards', (req, res) => {
+  const s = { _id:'ds-'+Date.now(), eventId:req.body.eventId, item:req.body.item, perPerson:req.body.perPerson, unit:req.body.unit||'份', createdAt:new Date().toISOString() };
+  DIST_STANDARDS.push(s);
+  res.status(201).json(ok(s, '标准已设定'));
+});
+
+// 记录发放
+app.post('/api/distributions', (req, res) => {
+  const d = { _id:'dist-'+Date.now(), eventId:req.body.eventId, group:req.body.group, item:req.body.item,
+    plannedQty:req.body.plannedQty||0, distributedQty:req.body.distributedQty||0, distributedTo:req.body.distributedTo||0,
+    distributedBy:req.body.distributedBy||'管理员', distributedAt:new Date().toISOString(), note:req.body.note||'' };
+  DISTRIBUTIONS.unshift(d);
+  res.status(201).json(ok(d, '发放已记录'));
+});
+
+// 查台账
+app.get('/api/distributions', (req, res) => {
+  let list = DISTRIBUTIONS.filter(d => !req.query.eventId || d.eventId === req.query.eventId);
+  if (req.query.group) list = list.filter(d => d.group === req.query.group);
+  res.json(ok({ items: list, total: list.length }));
+});
+
+// 缺口分析:应发(分组人数×标准) - 已发 = 缺口
+app.get('/api/distributions/:eventId/gaps', (req, res) => {
+  const eventId = req.params.eventId;
+  const persons = ROSTER_PERSONS.filter(p => p.eventId === eventId);
+  const standards = DIST_STANDARDS.filter(s => s.eventId === eventId);
+  const groups = [...new Set(persons.map(p => p.building || p.group))];
+  const gaps = [];
+  groups.forEach(g => {
+    const groupPersons = persons.filter(p => (p.building||p.group) === g);
+    const groupCount = groupPersons.length;
+    standards.forEach(std => {
+      const planned = Math.ceil(groupCount * std.perPerson);
+      const distributed = DISTRIBUTIONS.filter(d => d.group===g && d.item===std.item).reduce((s,d)=>s+(d.distributedQty||0),0);
+      const gap = planned - distributed;
+      gaps.push({ group:g, item:std.item, perPerson:std.perPerson, groupCount, planned, distributed, gap, status: gap<=0?'fulfilled':(distributed>0?'partial':'pending') });
+    });
+  });
+  res.json(ok({ items: gaps, totalGaps: gaps.filter(g=>g.gap>0).length, totalFulfilled: gaps.filter(g=>g.gap<=0).length }));
+});
+
+// ===== ③ 网格化责任区 =====
+const ZONES = [
+  { _id:'zone-1', eventId:'re-1', name:'1栋', leader:'学生会主席王某', leaderPhone:'13500004001', scope:'1-4层,共32寝室', personCount:40, status:'confirmed', checkedRooms:32, totalRooms:32, checkedAt:new Date(Date.now()-3600000).toISOString(), checkedBy:'王某', note:'全部确认,最后撤离' },
+  { _id:'zone-2', eventId:'re-1', name:'2栋', leader:'生活部长李某', leaderPhone:'13500004002', scope:'1-4层,共32寝室', personCount:40, status:'checking', checkedRooms:24, totalRooms:32, checkedAt:null, checkedBy:'李某', note:'检查中,还差8间' },
+  { _id:'zone-3', eventId:'re-1', name:'3栋', leader:'体育委员赵某', leaderPhone:'13500004003', scope:'1-4层,共32寝室', personCount:40, status:'pending', checkedRooms:0, totalRooms:32, checkedAt:null, checkedBy:'', note:'未开始' },
+  { _id:'zone-4', eventId:'re-1', name:'4栋', leader:'待指派', leaderPhone:'', scope:'1-4层,共32寝室', personCount:40, status:'pending', checkedRooms:0, totalRooms:32, checkedAt:null, checkedBy:'', note:'负责人未落实' },
+  { _id:'zone-5', eventId:'re-1', name:'5栋', leader:'待指派', leaderPhone:'', scope:'1-4层,共32寝室', personCount:40, status:'pending', checkedRooms:0, totalRooms:32, checkedAt:null, checkedBy:'', note:'负责人未落实' },
+];
+
+app.get('/api/zones', (req, res) => {
+  let list = ZONES.filter(z => !req.query.eventId || z.eventId === req.query.eventId);
+  res.json(ok({ items: list, total: list.length, confirmed: list.filter(z=>z.status==='confirmed').length, checking: list.filter(z=>z.status==='checking').length, pending: list.filter(z=>z.status==='pending').length }));
+});
+app.post('/api/zones', (req, res) => {
+  const z = { _id:'zone-'+Date.now(), eventId:req.body.eventId, name:req.body.name, leader:req.body.leader||'待指派', leaderPhone:req.body.leaderPhone||'', scope:req.body.scope||'', personCount:req.body.personCount||0, status:'pending', checkedRooms:0, totalRooms:req.body.totalRooms||0, checkedAt:null, checkedBy:'', note:'' };
+  ZONES.push(z);
+  res.status(201).json(ok(z, '责任区已创建'));
+});
+// 提交检查结果
+app.put('/api/zones/:id/check', (req, res) => {
+  const z = ZONES.find(x => x._id === req.params.id);
+  if (!z) return res.status(404).json(ok(null, '未找到'));
+  if (req.body.leader) z.leader = req.body.leader;
+  if (req.body.leaderPhone) z.leaderPhone = req.body.leaderPhone;
+  z.checkedRooms = req.body.checkedRooms ?? z.checkedRooms;
+  z.status = z.checkedRooms >= z.totalRooms ? 'confirmed' : 'checking';
+  z.checkedAt = new Date().toISOString();
+  z.checkedBy = req.body.checkedBy || z.leader;
+  if (req.body.note) z.note = req.body.note;
+  res.json(ok(z, z.status==='confirmed' ? '检查完成,责任区已确认' : '检查进度已更新'));
+});
+// 指派负责人
+app.put('/api/zones/:id/assign', (req, res) => {
+  const z = ZONES.find(x => x._id === req.params.id);
+  if (!z) return res.status(404).json(ok(null, '未找到'));
+  z.leader = req.body.leader || z.leader;
+  z.leaderPhone = req.body.leaderPhone || z.leaderPhone;
+  res.json(ok(z, '负责人已指派'));
+});
+
+// ===== ④ 多维度证据记录 =====
+const EVENT_LOGS = [
+  { _id:'log-1', eventId:'re-1', type:'text', content:'学生会主席带头执行最后撤离原则,逐个寝室检查确认。第一天已分发面包和矿泉水,每人一个面包半瓶水。', author:'管理员', createdAt:new Date(Date.now()-7200000).toISOString(), refType:'event', refId:'re-1' },
+  { _id:'log-2', eventId:'re-1', type:'photo', content:'1栋3楼走廊积水情况', photoUrl:'', author:'王某', createdAt:new Date(Date.now()-5400000).toISOString(), refType:'zone', refId:'zone-1' },
+  { _id:'log-3', eventId:'re-1', type:'text', content:'2栋还差8间寝室未检查,负责人李某正在逐间确认人员情况。患难与共,确保不遗漏任何一位同学。', author:'管理员', createdAt:new Date(Date.now()-1800000).toISOString(), refType:'zone', refId:'zone-2' },
+];
+
+app.get('/api/event-logs', (req, res) => {
+  let list = EVENT_LOGS.filter(l => !req.query.eventId || l.eventId === req.query.eventId);
+  list = list.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json(ok({ items: list, total: list.length }));
+});
+app.post('/api/event-logs', (req, res) => {
+  const l = { _id:'log-'+Date.now(), eventId:req.body.eventId, type:req.body.type||'text', content:req.body.content||'', photoUrl:req.body.photoUrl||'', author:req.body.author||'管理员', createdAt:new Date().toISOString(), refType:req.body.refType||'', refId:req.body.refId||'' };
+  EVENT_LOGS.unshift(l);
+  res.status(201).json(ok(l, '记录已添加'));
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`\n========================================`);

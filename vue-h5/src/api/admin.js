@@ -83,6 +83,63 @@ export function getRecommendations(helpCode) {
 export function dispatchAssign(helpCode, volunteerUid, note) {
   return http.post('/api/dispatch/assign', { helpCode, volunteerUid, note });
 }
+
+// ===== 群体应急闭环管理 =====
+// 名单系统
+export function listRosterEvents() {
+  return http.get('/api/rosters/events');
+}
+export function createRosterEvent(body) {
+  return http.post('/api/rosters/events', body);
+}
+export function listRosterPersons(eventId, params) {
+  return http.get(`/api/rosters/events/${eventId}/persons`, { params });
+}
+export function importRosterPersons(eventId, persons) {
+  return http.post(`/api/rosters/events/${eventId}/persons`, persons);
+}
+export function updatePersonStatus(personId, body) {
+  return http.put(`/api/rosters/persons/${personId}`, body);
+}
+export function getRosterStats(eventId) {
+  return http.get(`/api/rosters/events/${eventId}/stats`);
+}
+// 物资台账
+export function listDistStandards(eventId) {
+  return http.get('/api/distributions/standards', { params: { eventId } });
+}
+export function createDistStandard(body) {
+  return http.post('/api/distributions/standards', body);
+}
+export function listDistributions(eventId) {
+  return http.get('/api/distributions', { params: { eventId } });
+}
+export function createDistribution(body) {
+  return http.post('/api/distributions', body);
+}
+export function getDistributionGaps(eventId) {
+  return http.get(`/api/distributions/${eventId}/gaps`);
+}
+// 责任区
+export function listZones(eventId) {
+  return http.get('/api/zones', { params: { eventId } });
+}
+export function createZone(body) {
+  return http.post('/api/zones', body);
+}
+export function checkZone(zoneId, body) {
+  return http.put(`/api/zones/${zoneId}/check`, body);
+}
+export function assignZoneLeader(zoneId, body) {
+  return http.put(`/api/zones/${zoneId}/assign`, body);
+}
+// 事件记录
+export function listEventLogs(eventId) {
+  return http.get('/api/event-logs', { params: { eventId } });
+}
+export function createEventLog(body) {
+  return http.post('/api/event-logs', body);
+}
 export function createMatch(body) {
   return http.post('/api/matches', body);
 }

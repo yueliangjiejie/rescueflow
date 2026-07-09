@@ -10,6 +10,14 @@
 
     <div class="section">
       <div class="section-title">管理功能</div>
+      <div class="entry-card" @click="$router.push('/admin/roster')">
+        <div class="entry-icon" style="background:#fff1f0; color:#ee0a24;"><van-icon name="friends-o" /></div>
+        <div class="entry-body">
+          <div class="entry-title">群体应急闭环 <van-tag type="danger" size="mini">核心</van-tag></div>
+          <div class="entry-desc">群体被困场景：名单管理 + 物资台账 + 责任区 + 记录</div>
+        </div>
+        <van-icon name="arrow" color="#c8c9cc" />
+      </div>
       <div class="entry-card" @click="$router.push('/admin/helps')">
         <div class="entry-icon" style="background:#fff1f0; color:#ee0a24;"><van-icon name="edit" /></div>
         <div class="entry-body">
