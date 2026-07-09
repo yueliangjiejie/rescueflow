@@ -1,9 +1,20 @@
 import axios from 'axios';
 
-// 群众端不要求鉴权;管理后台用单独实例带 token(阶段2)
+// 群众端不要求鉴权;管理员登录后由拦截器自动注入 token + actor 头
 const http = axios.create({
   baseURL: '/',
   timeout: 20000,
+});
+
+// 请求拦截器:登录态自动注入身份头(与 vue-admin 一致)
+http.interceptors.request.use((cfg) => {
+  const token = localStorage.getItem('rf_token');
+  if (token) {
+    cfg.headers['Authorization'] = `Bearer ${token}`;
+  }
+  cfg.headers['x-actor-id'] = localStorage.getItem('rf_actor_id') || 'public';
+  cfg.headers['x-actor-role'] = localStorage.getItem('rf_actor_role') || 'public';
+  return cfg;
 });
 
 // 失败不直接抛错,而是返回 { __networkError: true },由调用方决定是否入断网队列

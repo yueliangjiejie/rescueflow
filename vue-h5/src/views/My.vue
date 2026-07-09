@@ -19,34 +19,37 @@
     </van-cell-group>
 
     <!-- 管理员入口 -->
-    <van-cell-group inset title="管理员" v-if="isAdmin">
-      <van-cell title="管理后台" icon="setting-o" is-link @click="goAdmin">
-        <template #right-icon>
-          <van-tag type="danger" size="small">后台</van-tag>
+    <van-cell-group inset title="管理员" v-if="isLoggedIn">
+      <van-cell title="管理后台" icon="shield-o" is-link to="/admin">
+        <template #value>
+          <van-tag type="primary" size="small">{{ user?.name || '管理员' }}</van-tag>
         </template>
       </van-cell>
-      <van-cell title="审批管理" icon="friends-o" is-link @click="goAdmin('manage')" />
-      <van-cell title="供需对接" icon="exchange" is-link @click="goAdmin('match')" />
+      <van-cell title="求助审批" icon="edit" is-link to="/admin/helps" />
+      <van-cell title="志愿者审批" icon="friends-o" is-link to="/admin/volunteers" />
+      <van-cell title="供需对接" icon="exchange" is-link to="/admin/match" />
     </van-cell-group>
-
-    <div style="padding: 20px; text-align:center;">
-      <van-button size="small" plain type="primary" @click="toggleAdmin">
-        {{ isAdmin ? '退出管理模式' : '切换为管理员' }}
-      </van-button>
-      <p class="muted" style="font-size:11px; margin-top:8px;">
-        管理员入口：审批志愿者、管理供需对接、核实求助信息
-      </p>
-    </div>
+    <van-cell-group inset title="管理员" v-else>
+      <van-cell title="管理员登录" icon="lock" is-link to="/login">
+        <template #value>
+          <van-tag type="warning" size="small">未登录</van-tag>
+        </template>
+      </van-cell>
+    </van-cell-group>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { showToast, showSuccessToast } from 'vant';
 
 const myId = ref(localStorage.getItem('rf_uid') || '');
 const myPhone = ref(localStorage.getItem('rf_phone') || '');
-const isAdmin = ref(localStorage.getItem('rf_admin') === '1');
+const isLoggedIn = computed(() => !!localStorage.getItem('rf_token'));
+const user = computed(() => {
+  try { return JSON.parse(localStorage.getItem('rf_user') || 'null'); }
+  catch { return null; }
+});
 const myHelpsCount = ref(0);
 
 function refreshHelpsCount() {
@@ -70,26 +73,10 @@ function clearCache() {
   localStorage.removeItem('rf_phone');
   localStorage.removeItem('rf_uid');
   localStorage.removeItem('rf_admin');
+  // 不清除管理员登录态(rf_token 等),避免误退出
   myPhone.value = '';
   myId.value = '';
-  isAdmin.value = false;
   showToast('已清除');
-}
-
-function toggleAdmin() {
-  isAdmin.value = !isAdmin.value;
-  localStorage.setItem('rf_admin', isAdmin.value ? '1' : '0');
-  showToast(isAdmin.value ? '已切换为管理员' : '已退出管理模式');
-}
-
-function goAdmin(path) {
-  // 管理后台通常运行在 5174 端口
-  const adminBase = window.location.origin.replace(':5173', ':5174');
-  if (path) {
-    window.open(`${adminBase}/#${path}`, '_blank');
-  } else {
-    window.open(adminBase, '_blank');
-  }
 }
 
 onMounted(() => {

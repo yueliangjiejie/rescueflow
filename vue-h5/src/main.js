@@ -20,6 +20,32 @@ const router = createRouter({
     { path: '/my', name: 'my', component: () => import('./views/My.vue') },
     { path: '/my-matches', name: 'myMatches', component: () => import('./views/MyMatches.vue') },
     { path: '/my-helps', name: 'myHelps', component: () => import('./views/MyHelps.vue') },
+    // —— 管理员内嵌功能 ——
+    { path: '/login', name: 'login', component: () => import('./views/Login.vue') },
+    {
+      path: '/admin',
+      name: 'admin',
+      component: () => import('./views/Admin.vue'),
+      beforeEnter: () => (localStorage.getItem('rf_token') ? true : '/login'),
+    },
+    {
+      path: '/admin/helps',
+      name: 'adminHelps',
+      component: () => import('./views/AdminHelps.vue'),
+      beforeEnter: () => (localStorage.getItem('rf_token') ? true : '/login'),
+    },
+    {
+      path: '/admin/volunteers',
+      name: 'adminVolunteers',
+      component: () => import('./views/AdminVolunteers.vue'),
+      beforeEnter: () => (localStorage.getItem('rf_token') ? true : '/login'),
+    },
+    {
+      path: '/admin/match',
+      name: 'adminMatch',
+      component: () => import('./views/AdminMatch.vue'),
+      beforeEnter: () => (localStorage.getItem('rf_token') ? true : '/login'),
+    },
   ],
 });
 
