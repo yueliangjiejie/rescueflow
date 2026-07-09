@@ -986,14 +986,18 @@ BUILDINGS.forEach((b, bi) => {
 
 // 群体事件列表
 app.get('/api/rosters/events', (req, res) => {
-  const events = ROSTER_EVENTS.map(e => {
+  let events = ROSTER_EVENTS.map(e => {
     const persons = ROSTER_PERSONS.filter(p => p.eventId === e._id);
-    return { ...e, totalRegistered: persons.length || e.totalRegistered,
+    return { ...e, totalRegistered: persons.length || e.estimatedCount || 0,
       totalEvacuated: persons.filter(p=>['evacuated','safe'].includes(p.status)).length,
       totalTrapped: persons.filter(p=>p.status==='trapped').length,
       totalMissing: persons.filter(p=>p.status==='missing').length };
   });
-  res.json(ok({ items: events, total: events.length }));
+  if (req.query.status) events = events.filter(e => e.status === req.query.status);
+  res.json(ok({ items: events, total: events.length,
+    reported: events.filter(e=>e.status==='reported').length,
+    active: events.filter(e=>e.status==='active').length,
+    resolved: events.filter(e=>e.status==='resolved').length }));
 });
 app.post('/api/rosters/events', (req, res) => {
   const b = req.body || {};
@@ -1023,6 +1027,65 @@ app.post('/api/rosters/events', (req, res) => {
   };
   ROSTER_EVENTS.unshift(e);
   res.status(201).json(ok(e, '群体事件已上报,平台将尽快介入协调'));
+});
+
+// 事件详情(含完整信息)
+app.get('/api/rosters/events/:id', (req, res) => {
+  const e = ROSTER_EVENTS.find(x => x._id === req.params.id);
+  if (!e) return res.status(404).json(ok(null, '未找到事件'));
+  const persons = ROSTER_PERSONS.filter(p => p.eventId === e._id);
+  const enriched = { ...e, totalRegistered: persons.length || e.estimatedCount || 0,
+    totalEvacuated: persons.filter(p=>['evacuated','safe'].includes(p.status)).length,
+    totalTrapped: persons.filter(p=>p.status==='trapped').length,
+    totalMissing: persons.filter(p=>p.status==='missing').length };
+  res.json(ok(enriched));
+});
+
+// 编辑事件(管理员纠偏:修正名称/地点/人数等错误信息)
+app.put('/api/rosters/events/:id', (req, res) => {
+  const e = ROSTER_EVENTS.find(x => x._id === req.params.id);
+  if (!e) return res.status(404).json(ok(null, '未找到事件'));
+  const b = req.body || {};
+  if (b.name) e.name = b.name;
+  if (b.type) e.type = b.type;
+  if (b.urgency) e.urgency = b.urgency;
+  if (b.scene !== undefined) e.scene = b.scene;
+  if (b.address !== undefined) e.location = { ...e.location, address: b.address };
+  if (b.locationDetail !== undefined) e.location = { ...e.location, detail: b.locationDetail };
+  if (b.coordinates) e.location = { ...e.location, coordinates: b.coordinates };
+  if (b.groupType) e.groupType = b.groupType;
+  if (b.estimatedCount !== undefined) e.estimatedCount = Number(b.estimatedCount) || 0;
+  if (b.needs) e.needs = b.needs;
+  if (b.hasSpecialGroups) e.hasSpecialGroups = b.hasSpecialGroups;
+  if (b.contactName !== undefined) e.contact = { ...e.contact, name: b.contactName };
+  if (b.contactPhone !== undefined) e.contact = { ...e.contact, phone: b.contactPhone };
+  if (b.shelterId !== undefined) e.shelterId = b.shelterId;
+  e.updatedAt = new Date().toISOString();
+  res.json(ok(e, '事件信息已更新'));
+});
+
+// 状态流转:reported(待介入) → active(已介入) → resolved(已解决)
+app.put('/api/rosters/events/:id/status', (req, res) => {
+  const e = ROSTER_EVENTS.find(x => x._id === req.params.id);
+  if (!e) return res.status(404).json(ok(null, '未找到事件'));
+  const flow = { reported:'active', active:'resolved', resolved:'active' };
+  const target = req.body.status || flow[e.status];
+  e.status = target;
+  e.statusChangedAt = new Date().toISOString();
+  res.json(ok(e, target==='active' ? '已介入协调' : target==='resolved' ? '已标记解决' : '状态已更新'));
+});
+
+// 删除事件(软删除)
+app.delete('/api/rosters/events/:id', (req, res) => {
+  const e = ROSTER_EVENTS.find(x => x._id === req.params.id);
+  if (!e) return res.status(404).json(ok(null, '未找到事件'));
+  const idx = ROSTER_EVENTS.indexOf(e);
+  ROSTER_EVENTS.splice(idx, 1);
+  // 同时清理关联名单
+  for (let i = ROSTER_PERSONS.length - 1; i >= 0; i--) {
+    if (ROSTER_PERSONS[i].eventId === req.params.id) ROSTER_PERSONS.splice(i, 1);
+  }
+  res.json(ok({ id: req.params.id }, '事件已删除'));
 });
 
 // 名单查询(支持 status/group 筛选)

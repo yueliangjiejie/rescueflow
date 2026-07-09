@@ -86,11 +86,23 @@ export function dispatchAssign(helpCode, volunteerUid, note) {
 
 // ===== 群体应急闭环管理 =====
 // 名单系统
-export function listRosterEvents() {
-  return http.get('/api/rosters/events');
+export function listRosterEvents(params) {
+  return http.get('/api/rosters/events', { params });
+}
+export function getRosterEvent(id) {
+  return http.get(`/api/rosters/events/${id}`);
 }
 export function createRosterEvent(body) {
   return http.post('/api/rosters/events', body);
+}
+export function updateRosterEvent(id, body) {
+  return http.put(`/api/rosters/events/${id}`, body);
+}
+export function setRosterEventStatus(id, status) {
+  return http.put(`/api/rosters/events/${id}/status`, { status });
+}
+export function deleteRosterEvent(id) {
+  return http.delete(`/api/rosters/events/${id}`);
 }
 export function listRosterPersons(eventId, params) {
   return http.get(`/api/rosters/events/${eventId}/persons`, { params });

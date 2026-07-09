@@ -13,6 +13,37 @@
       <van-progress :percentage="stats.evacRate" color="#07c160" :show-pivot="true" pivot-text="撤离率" />
     </div>
 
+    <!-- 事件详情卡片(群众上报的完整信息) -->
+    <van-cell-group inset v-if="event" class="event-info">
+      <van-cell title="灾害类型">
+        <template #value><van-tag plain size="small">{{ disasterLabel(event.type) }}</van-tag></template>
+      </van-cell>
+      <van-cell title="地点">
+        <template #title>
+          <div><van-icon name="location-o" /> {{ event.location?.address || '未填' }}</div>
+          <div v-if="event.location?.detail" class="muted s12" style="margin-left:18px;">{{ event.location.detail }}</div>
+        </template>
+      </van-cell>
+      <van-cell title="预估人数" :value="`${event.estimatedCount || 0}人`" />
+      <van-cell title="特殊群体" v-if="event.hasSpecialGroups?.length">
+        <template #value>
+          <van-tag v-for="g in event.hasSpecialGroups" :key="g" type="warning" size="mini" style="margin-left:2px;">{{ g }}</van-tag>
+        </template>
+      </van-cell>
+      <van-cell title="紧急需求" v-if="event.needs?.length">
+        <template #value>
+          <van-tag v-for="n in event.needs" :key="n" type="danger" size="mini" style="margin-left:2px;">{{ n }}</van-tag>
+        </template>
+      </van-cell>
+      <van-cell title="上报人" v-if="event.contact?.name">
+        <template #value>
+          {{ event.contact.name }}<span v-if="event.contact.role"> ({{ event.contact.role }})</span>
+          <a v-if="event.contact.phone" :href="'tel:'+event.contact.phone" class="call-link" style="margin-left:6px;">{{ event.contact.phone }}</a>
+        </template>
+      </van-cell>
+      <van-cell title="现场情况" v-if="event.scene" :label="event.scene" />
+    </van-cell-group>
+
     <van-tabs v-model:active="tab" shrink sticky>
       <van-tab title="名单" name="roster" />
       <van-tab title="物资" name="dist" :badge="gaps?.totalGaps ? String(gaps.totalGaps) : ''" />
@@ -193,7 +224,7 @@ import { ref, reactive, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { showToast, showSuccessToast } from 'vant';
 import {
-  listRosterEvents, listRosterPersons, updatePersonStatus, getRosterStats,
+  listRosterEvents, getRosterEvent, listRosterPersons, updatePersonStatus, getRosterStats,
   listDistStandards, createDistStandard, listDistributions, createDistribution, getDistributionGaps,
   listZones, checkZone, assignZoneLeader,
   listEventLogs, createEventLog,
@@ -227,12 +258,13 @@ const gapTagType = (s) => ({ fulfilled:'success', partial:'warning', pending:'da
 const zStatusLabel = (s) => ({ confirmed:'已确认', checking:'检查中', pending:'待检查' }[s] || s);
 const zStatusType = (s) => ({ confirmed:'success', checking:'warning', pending:'danger' }[s] || 'default');
 const logTypeLabel = (t) => ({ text:'文字', photo:'照片', note:'备注' }[t] || t);
+const disasterLabel = (t) => ({ flood:'洪水', earthquake:'地震', fire:'火灾', landslide:'滑坡', typhoon:'台风', other:'其他' }[t] || t || '未知');
 const fmt = (t) => t ? new Date(t).toLocaleString('zh-CN', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }) : '';
 
 async function loadAll() {
   try {
-    const [evs, st] = await Promise.all([listRosterEvents(), getRosterStats(eventId)]);
-    event.value = (evs.data.items || []).find(e => e._id === eventId);
+    const [ev, st] = await Promise.all([getRosterEvent(eventId), getRosterStats(eventId)]);
+    event.value = ev.data;
     stats.value = st.data;
   } catch (e) { showToast(e.message || '加载失败'); }
   loadPersons();
@@ -334,6 +366,7 @@ onMounted(loadAll);
 
 <style scoped>
 .dashboard { background:#fff; padding:12px; border-bottom:1px solid #f0f0f0; }
+.event-info { margin: 8px 12px; }
 .dash-row { display:flex; gap:4px; margin-bottom:8px; }
 .dash-cell { flex:1; text-align:center; }
 .big { font-size:24px; font-weight:700; display:block; color:#323233; }
