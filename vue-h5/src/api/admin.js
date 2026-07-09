@@ -29,6 +29,10 @@ export function deleteHelp(code) {
 export function restoreHelp(code) {
   return http.post(`/api/admin/helps/${code}/restore`, {});
 }
+// 组织/承接方列表(转交目标)
+export function listOrgs() {
+  return http.get('/api/organizations');
+}
 
 // ===== 信息墙 - 供给管理 =====
 export function listAdminOffers(params) {

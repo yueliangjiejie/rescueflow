@@ -51,7 +51,7 @@
         <div class="actions" v-if="h.status==='pending' || h.status==='verified'">
           <van-button v-if="h.status==='pending'" size="small" type="primary" @click="openVerify(h)">核实通过</van-button>
           <van-button v-if="h.status==='pending'" size="small" type="danger" plain @click="openReject(h)">驳回</van-button>
-          <van-button v-if="h.status==='verified'" size="small" type="warning" :loading="h._acting" @click="act(h,'transfer')">转交</van-button>
+          <van-button v-if="h.status==='verified'" size="small" type="warning" @click="openTransfer(h)">转交承接方</van-button>
           <van-button size="small" type="success" :loading="h._acting" @click="act(h,'transition','done')">标记完成</van-button>
         </div>
       </van-cell-group>
@@ -73,13 +73,39 @@
         <van-field v-model="rejectForm.reviewNote" type="textarea" rows="3" placeholder="如:信息不完整/重复登记/已自行解决" />
       </div>
     </van-dialog>
+
+    <!-- 转交弹窗:选择承接方 -->
+    <van-action-sheet v-model:show="transferShow" :title="`转交 ${transferForm.code}`" closeable>
+      <div style="padding: 12px 16px 24px;">
+        <p class="muted s12" style="margin:0 0 12px;">选择将本求助转交给哪个承接方(可联系处理):</p>
+        <van-radio-group v-model="transferForm.orgId">
+          <van-cell-group inset>
+            <van-cell v-for="org in orgs" :key="org._id" clickable @click="transferForm.orgId = org._id">
+              <template #title>
+                <div class="org-name">{{ org.name }}</div>
+                <div class="org-info muted s12">
+                  {{ org.contactName || '联系人未填' }}
+                  <span v-if="org.contactPhone"> · {{ org.contactPhone }}</span>
+                  <span v-if="org.serviceArea"> · {{ org.serviceArea }}</span>
+                </div>
+              </template>
+              <template #right-icon>
+                <van-radio :name="org._id" />
+              </template>
+            </van-cell>
+          </van-cell-group>
+        </van-radio-group>
+        <van-field v-model="transferForm.note" label="转交备注" placeholder="可选,告知承接方背景信息" style="margin-top:12px;" />
+        <van-button type="warning" block style="margin-top:12px;" :loading="transferForm._loading" @click="doTransfer">确认转交</van-button>
+      </div>
+    </van-action-sheet>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue';
 import { showToast, showSuccessToast } from 'vant';
-import { listHelps, helpAction, revealHelp } from '../api/admin.js';
+import { listHelps, helpAction, revealHelp, listOrgs } from '../api/admin.js';
 import { SPECIAL_PERSON_LABELS } from '@rescueflow/shared';
 
 const list = ref([]);
@@ -174,6 +200,43 @@ async function beforeRejectClose(action) {
   } catch (e) { showToast(e.message || '操作失败'); return false; }
 }
 
+// 转交弹窗
+const transferShow = ref(false);
+const transferForm = reactive({ code:'', orgId:'', note:'', _loading:false });
+const orgs = ref([]);
+function openTransfer(h) {
+  transferForm.code = h.code;
+  transferForm.orgId = '';
+  transferForm.note = '';
+  transferForm._loading = false;
+  transferShow.value = true;
+  if (!orgs.value.length) loadOrgs();
+}
+async function loadOrgs() {
+  try {
+    const res = await listOrgs();
+    orgs.value = (res.data || []).filter(o => o.active !== false);
+  } catch {}
+}
+async function doTransfer() {
+  if (!transferForm.orgId) { showToast('请选择承接方'); return; }
+  const org = orgs.value.find(o => o._id === transferForm.orgId);
+  if (!org) { showToast('承接方无效'); return; }
+  transferForm._loading = true;
+  try {
+    await helpAction(transferForm.code, 'transfer', {
+      transferredTo: org.name,
+      transferredToOrgId: org._id,
+      transferredToContact: org.contactPhone || '',
+      note: transferForm.note || `转交给${org.name}处理`,
+    });
+    showSuccessToast(`已转交给 ${org.name}`);
+    transferShow.value = false;
+    load();
+  } catch (e) { showToast(e.message || '转交失败'); }
+  finally { transferForm._loading = false; }
+}
+
 onMounted(load);
 </script>
 
@@ -192,6 +255,8 @@ onMounted(load);
 .review-note.success { background:#f6ffed; color:#52c41a; }
 .review-note.danger { background:#fff1f0; color:#ee0a24; }
 .actions { display:flex; gap:6px; padding: 8px 12px; border-top: 1px dashed #eee; flex-wrap:wrap; }
+.org-name { font-size:14px; font-weight:600; color:#323233; }
+.org-info { margin-top:2px; }
 .s11 { font-size:11px; } .s12 { font-size:12px; }
 .muted { color:#969799; } .danger { color:#ee0a24; }
 </style>

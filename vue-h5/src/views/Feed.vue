@@ -94,6 +94,17 @@
 
     <!-- 发布选择 -->
     <van-action-sheet v-model:show="showPublish" :actions="publishActions" cancel-text="取消" close-on-click-action @select="onPublish" />
+
+    <!-- 认领弹窗(替代 window.prompt,手机端兼容) -->
+    <van-dialog v-model:show="claimShow" title="我来帮忙" show-cancel-button :before-close="beforeClaimClose" confirm-button-text="确认认领">
+      <div style="padding: 12px 16px;">
+        <p class="muted s12" style="margin:0 0 10px;">需求方会看到您的联系方式,用于对接。请确保电话可接通。</p>
+        <van-field v-model="claimForm.name" label="姓名" placeholder="您的称呼" left-icon="contact" required />
+        <van-field v-model="claimForm.phone" label="电话" type="tel" placeholder="11位手机号" left-icon="phone-o" required />
+        <van-field v-model="claimForm.org" label="组织" placeholder="可选,如:蓝天救援队" left-icon="friends-o" />
+        <van-field v-model="claimForm.note" label="备注" type="textarea" rows="2" placeholder="可选,如:有车可运2吨物资" />
+      </div>
+    </van-dialog>
   </div>
 </template>
 
@@ -156,31 +167,56 @@ const MATCH_LABELS = { requested:'待响应', accepted:'已接受', in_transit:'
 const matchLabel = (s) => MATCH_LABELS[s] || s;
 const claimStatusType = (s) => ({requested:'warning',accepted:'primary',in_transit:'success',delivered:'success',completed:'success',cancelled:'default'}[s]||'default');
 
-async function claim(it) {
-  // 认领人必须留联系方式 —— 这是"对接"能落地的关键
-  const myId = localStorage.getItem('rf_uid') || ('u'+Date.now());
-  localStorage.setItem('rf_uid', myId);
-  const fname = window.prompt('您的称呼(姓名)\n需求方会看到,用于联系对接', '');
-  if (!fname) return;
-  const fphone = window.prompt('您的联系电话(手机号)\n需求方会用这个号码联系您', '');
-  if (!fphone || !/^1[3-9]\d{9}$/.test(fphone)) { showToast('请输入正确的11位手机号'); return; }
-  const forg = window.prompt('所属组织(可选,如:蓝天救援队,留空为个人)', '') || '';
+// 认领弹窗(替代 window.prompt,手机端兼容)
+const claimShow = ref(false);
+const claimForm = reactive({ helpCode:'', helpTitle:'', name:'', phone:'', org:'', note:'' });
 
-  it._claiming = true;
+function claim(it) {
+  // 预填:记住的信息直接带入,减少重复输入
+  const savedPhone = localStorage.getItem('rf_phone') || '';
+  const savedName = localStorage.getItem('rf_name') || '';
+  claimForm.helpCode = it.code;
+  claimForm.helpTitle = it.title || '';
+  claimForm.name = savedName;
+  claimForm.phone = savedPhone;
+  claimForm.org = localStorage.getItem('rf_org') || '';
+  claimForm.note = '';
+  claimShow.value = true;
+}
+
+async function beforeClaimClose(action) {
+  if (action !== 'confirm') return true;
+  // 校验
+  if (!claimForm.name.trim()) { showToast('请填写姓名'); return false; }
+  if (!/^1[3-9]\d{9}$/.test(claimForm.phone)) { showToast('请输入正确的11位手机号'); return false; }
+  // 提交
   try {
+    const myId = localStorage.getItem('rf_uid') || ('u' + Date.now());
+    localStorage.setItem('rf_uid', myId);
+    const note = claimForm.note.trim() || (claimForm.org.trim() ? `${claimForm.org.trim()}·我来帮忙` : '我来帮忙');
     const res = await createMatch({
-      helpCode: it.code, fulfillerId: myId,
-      fulfillerName: fname, fulfillerPhone: fphone, fulfillerOrg: forg,
-      note: '我来帮忙',
+      helpCode: claimForm.helpCode,
+      fulfillerId: myId,
+      fulfillerName: claimForm.name.trim(),
+      fulfillerPhone: claimForm.phone.trim(),
+      fulfillerOrg: claimForm.org.trim(),
+      note,
     });
-    const myMatch = { code: res.data.code, status: 'requested', fulfillerId: myId, fulfillerName: fname, fulfillerPhone: fphone };
-    it.myMatch = myMatch;
-    localStorage.setItem('rf_phone', fphone); // 记住我的电话,用于识别我认领的
-    if (!it.claims) it.claims = [];
-    it.claims.unshift({ code: myMatch.code, status: 'requested', fulfillerName: fname, fulfillerPhone: fphone, fulfillerOrg: forg, note: '我来帮忙' });
-    showToast({ message: '认领成功!需求方会看到您的联系方式', duration: 2000 });
-  } catch(e) { showToast(e.message || '认领失败'); }
-  finally { it._claiming = false; }
+    // 记住认领人信息,下次免填
+    localStorage.setItem('rf_phone', claimForm.phone.trim());
+    localStorage.setItem('rf_name', claimForm.name.trim());
+    if (claimForm.org.trim()) localStorage.setItem('rf_org', claimForm.org.trim());
+    // 更新本地列表
+    const it = items.value.find(x => x.code === claimForm.helpCode);
+    if (it) {
+      it.myMatch = { code: res.data.code, status: 'requested' };
+      if (!it.claims) it.claims = [];
+      it.claims.unshift({ code: res.data.code, status: 'requested', fulfillerName: claimForm.name.trim(), fulfillerPhone: claimForm.phone.trim(), fulfillerOrg: claimForm.org.trim(), note });
+    }
+    showToast({ message: '认领成功!需求方会看到您的联系方式', duration: 2500 });
+    claimShow.value = false;
+    return true;
+  } catch (e) { showToast(e.message || '认领失败'); return false; }
 }
 
 async function adv(it, action) {
@@ -228,6 +264,7 @@ onMounted(load);
 .claim-note { width:100%; padding-left:20px; }
 .my-claim { display:flex; align-items:center; flex-wrap:wrap; gap:4px; margin-top:6px; padding:4px 8px; background:#ecf5ff; border-radius:4px; }
 .s11 { font-size:11px; }
+.s12 { font-size:12px; }
 .feed-time { font-size:11px; margin-top:4px; }
 .danger { color:#ee0a24; font-weight:600; }
 .muted { color:#969799; }
