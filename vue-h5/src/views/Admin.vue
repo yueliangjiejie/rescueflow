@@ -26,8 +26,16 @@
         </div>
         <van-icon name="arrow" color="#c8c9cc" />
       </div>
+      <div class="entry-card" @click="$router.push('/admin/dispatch')">
+        <div class="entry-icon" style="background:#e6f7ff; color:#1989fa;"><van-icon name="location-o" /></div>
+        <div class="entry-body">
+          <div class="entry-title">调度看板</div>
+          <div class="entry-desc">地图+列表双视图、智能推荐志愿者、一键指派</div>
+        </div>
+        <van-icon name="arrow" color="#c8c9cc" />
+      </div>
       <div class="entry-card" @click="$router.push('/admin/match')">
-        <div class="entry-icon" style="background:#e6f7ff; color:#1989fa;"><van-icon name="exchange" /></div>
+        <div class="entry-icon" style="background:#f9f0ff; color:#722ed1;"><van-icon name="exchange" /></div>
         <div class="entry-body">
           <div class="entry-title">供需对接</div>
           <div class="entry-desc">智能撮合需求与供给、推进对接进度</div>

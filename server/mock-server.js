@@ -276,6 +276,102 @@ app.get('/api/volunteers/match', (_req, res) => {
   res.json(ok(MATCH_VOLUNTEERS));
 });
 
+// ===== 统一志愿者运力池(调度引擎用) =====
+// 整合 USERS(role:volunteer) + 已批准 VOL_APPS,加坐标/状态/负载
+const VOLUNTEERS = [
+  { uid: 'vol-chen', name: '陈船长', phone: '13500003001', skills: ['水域救援','车辆驾驶'], status: 'idle', serviceArea: { coordinates: [108.37, 22.82], address: '南宁邕江沿岸' }, completedCount: 12, activeCount: 0, org: '蓝天救援队' },
+  { uid: 'vol-wang', name: '王医生', phone: '13500003002', skills: ['医疗急救','心理疏导'], status: 'idle', serviceArea: { coordinates: [108.40, 22.85], address: '南宁青秀区' }, completedCount: 8, activeCount: 0, org: 'XX市人民医院' },
+  { uid: 'vol-li', name: '李师傅', phone: '13500003003', skills: ['车辆驾驶','物资搬运'], status: 'idle', serviceArea: { coordinates: [109.42, 24.33], address: '柳州城中区' }, completedCount: 5, activeCount: 0, org: '个人' },
+  { uid: 'vol-zhao', name: '赵护士', phone: '13500003004', skills: ['医疗急救','信息核实'], status: 'busy', serviceArea: { coordinates: [108.05, 22.93], address: '南宁江南区' }, completedCount: 15, activeCount: 1, org: 'XX红十字会' },
+  { uid: 'vol-sun', name: '孙向导', phone: '13500003005', skills: ['山地搜救','方言翻译'], status: 'idle', serviceArea: { coordinates: [110.18, 25.11], address: '桂林阳朔' }, completedCount: 6, activeCount: 0, org: '公羊救援队' },
+  { uid: 'vol-lin', name: '林志愿者', phone: '13500003006', skills: ['物资搬运','车辆驾驶'], status: 'offline', serviceArea: { coordinates: [109.60, 23.30], address: '来宾兴宾区' }, completedCount: 3, activeCount: 0, org: '个人' },
+];
+
+// 运力池接口
+app.get('/api/volunteers/pool', (req, res) => {
+  let pool = VOLUNTEERS.map(v => ({ ...v }));
+  if (req.query.status) pool = pool.filter(v => v.status === req.query.status);
+  if (req.query.skill) pool = pool.filter(v => v.skills.includes(req.query.skill));
+  // 计算实时负载(从 MATCHES 派生)
+  pool.forEach(v => {
+    v.activeCount = MATCHES.filter(m => m.fulfillerId === v.uid && !['completed','cancelled'].includes(m.status)).length;
+    v.status = v.activeCount > 0 ? 'busy' : v.status;
+  });
+  res.json(ok({ items: pool, total: pool.length, idle: pool.filter(v=>v.status==='idle').length, busy: pool.filter(v=>v.status==='busy').length, offline: pool.filter(v=>v.status==='offline').length }));
+});
+
+// 更新志愿者状态
+app.put('/api/volunteers/:uid/status', (req, res) => {
+  const v = VOLUNTEERS.find(x => x.uid === req.params.uid);
+  if (!v) return res.status(404).json(ok(null, '未找到志愿者'));
+  v.status = req.body.status || 'idle';
+  res.json(ok(v, '状态已更新'));
+});
+
+// ===== 智能推荐引擎 =====
+// 距离计算(Haversine,km)
+function haversineKm(a, b) {
+  if (!a || !b || a.length < 2 || b.length < 2) return 9999;
+  const R = 6371, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(b[1] - a[1]), dLng = toRad(b[0] - a[0]);
+  const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a[1])) * Math.cos(toRad(b[1])) * Math.sin(dLng/2)**2;
+  return Math.round(R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1-s)) * 10) / 10;
+}
+
+// 推荐算法:技能匹配(权重4) + 距离衰减(权重3) + 空闲优先(权重2) + 历史完成度(权重1)
+app.get('/api/dispatch/recommend', (req, res) => {
+  const help = helps.find(h => h.code === req.query.helpCode);
+  if (!help) return res.status(404).json(ok(null, '未找到求助'));
+  const helpCoord = help.location?.coordinates || [];
+  // 从摘要/需求推断所需技能关键词
+  const needText = ((help.content?.summary || '') + ' ' + (help.content?.needs || []).join(' '));
+  const SKILL_KEYWORDS = { '医疗急救':['医','伤','病','药','急救','出血'], '水域救援':['水','洪','淹','船','泳','涉水'], '车辆驾驶':['车','运','送','驾','路'], '物资搬运':['搬','扛','物资','搬抬','装卸'], '山地搜救':['山','搜救','迷路','失踪','徒步'], '心理疏导':['心理','恐慌','焦虑','安抚'], '方言翻译':['翻译','方言','语言','听不懂'], '信息核实':['核实','确认','联系','核查'] };
+  const neededSkills = [];
+  Object.entries(SKILL_KEYWORDS).forEach(([skill, kws]) => { if (kws.some(kw => needText.includes(kw))) neededSkills.push(skill); });
+
+  const recommendations = VOLUNTEERS.filter(v => v.status !== 'offline').map(v => {
+    // 技能匹配分(0-4):完全匹配=4,部分=2,无=0
+    const matchedSkills = v.skills.filter(s => neededSkills.includes(s));
+    const skillScore = neededSkills.length ? (matchedSkills.length / neededSkills.length) * 4 : (matchedSkills.length > 0 ? 2 : 1);
+    // 距离分(0-3):50km内满分,每增50km扣0.5
+    const distKm = haversineKm(helpCoord, v.serviceArea.coordinates);
+    const distScore = Math.max(0, 3 - Math.floor(distKm / 50) * 0.5);
+    // 空闲分(0-2)
+    const activeCount = MATCHES.filter(m => m.fulfillerId === v.uid && !['completed','cancelled'].includes(m.status)).length;
+    const idleScore = activeCount === 0 ? 2 : (activeCount === 1 ? 1 : 0);
+    // 历史完成度(0-1)
+    const histScore = Math.min(1, v.completedCount / 15);
+    const total = Math.round((skillScore + distScore + idleScore + histScore) * 10) / 10;
+    const reasons = [];
+    if (matchedSkills.length) reasons.push(`技能对口:${matchedSkills.join('/')}`);
+    if (distKm < 9999) reasons.push(`距离${distKm}km`);
+    reasons.push(activeCount === 0 ? '当前空闲' : `执行中${activeCount}单`);
+    if (v.completedCount > 5) reasons.push(`已完成${v.completedCount}次`);
+    return { ...v, _matchScore: total, _distKm: distKm, _activeCount: activeCount, _matchedSkills: matchedSkills, _reasons: reasons };
+  }).sort((a, b) => b._matchScore - a._matchScore).slice(0, 5);
+
+  res.json(ok({ helpCode: help.code, summary: help.content?.summary, urgency: help.urgency, neededSkills, recommendations }));
+});
+
+// 指派:管理员把求助指派给指定志愿者(创建对接)
+app.post('/api/dispatch/assign', (req, res) => {
+  const { helpCode, volunteerUid, note } = req.body || {};
+  const h = helps.find(h => h.code === helpCode);
+  const v = VOLUNTEERS.find(x => x.uid === volunteerUid);
+  if (!h || !v) return res.status(404).json(ok(null, '求助或志愿者不存在'));
+  // 防重复
+  const dup = MATCHES.find(m => m.helpCode === helpCode && m.fulfillerId === volunteerUid && !['completed','cancelled'].includes(m.status));
+  if (dup) return res.status(409).json(ok(null, '已指派给该志愿者'));
+  const m = { _id: 'mt-' + Date.now(), code: 'MATCH-GX-2026-' + String(900 + MATCHES.length).padStart(6, '0'),
+    helpCode, offerCode: null, requesterId: '', fulfillerId: v.uid,
+    fulfillerName: v.name, fulfillerPhone: v.phone, fulfillerOrg: v.org || '',
+    status: 'requested', note: note || `系统指派:管理员调度`, quantity: null,
+    requestedAt: new Date().toISOString(), respondDeadline: new Date(Date.now() + 7200000).toISOString(), isOverdue: false };
+  MATCHES.unshift(m);
+  v.status = 'busy';
+  res.status(201).json(ok({ matchCode: m.code, volunteer: v.name, status: 'requested' }, '指派成功,已通知志愿者'));
+});
+
 // 重复检测(假数据,演示用)
 app.get('/api/admin/helps/:code/duplicates', (req, res) => {
   const h = helps.find(h => h.code === req.params.code);
@@ -643,13 +739,13 @@ app.get('/api/auth/me', (_req, res) => res.json(ok({ id:'admin', role:'admin' })
 // ===== 互助(供给)+ 公开信息墙 =====
 const OFFERS = [
   { _id:'of-1', code:'OFFER-GX-2026-000001', type:'supplies', category:'饮用水', title:'可捐200箱矿泉水', description:'公司库存,全新未拆', quantity:200, unit:'箱',
-    provider:{name:'李总', phone:'13500001001', org:'XX商贸公司'}, location:'南宁江南区仓库', canDeliver:true, status:'available', submittedAt:new Date(Date.now()-7200000).toISOString() },
+    provider:{name:'李总', phone:'13500001001', org:'XX商贸公司'}, location:'南宁江南区仓库', coordinates:[108.31,22.75], canDeliver:true, status:'available', submittedAt:new Date(Date.now()-7200000).toISOString() },
   { _id:'of-2', code:'OFFER-GX-2026-000002', type:'transport', category:'船只', title:'有2艘冲锋舟可支援', description:'船主本人可驾驶,熟悉XX水域', quantity:2, unit:'艘',
-    provider:{name:'陈船长', phone:'13500001002', org:''}, location:'梧州长洲区', canDeliver:false, status:'available', submittedAt:new Date(Date.now()-10800000).toISOString() },
+    provider:{name:'陈船长', phone:'13500001002', org:''}, location:'梧州长洲区', coordinates:[111.28,23.47], canDeliver:false, status:'available', submittedAt:new Date(Date.now()-10800000).toISOString() },
   { _id:'of-3', code:'OFFER-GX-2026-000003', type:'service', category:'医生', title:'急诊医生可支援', description:'三甲医院急诊科,可参与现场救治', quantity:null, unit:'',
-    provider:{name:'王医生', phone:'13500001003', org:'XX市人民医院'}, location:'可赴现场', canDeliver:true, status:'available', submittedAt:new Date(Date.now()-14400000).toISOString() },
+    provider:{name:'王医生', phone:'13500001003', org:'XX市人民医院'}, location:'可赴现场', coordinates:[108.37,22.82], canDeliver:true, status:'available', submittedAt:new Date(Date.now()-14400000).toISOString() },
   { _id:'of-4', code:'OFFER-GX-2026-000004', type:'venue', category:'仓库', title:'可提供500平仓库暂存物资', description:'通风干燥,叉车可进', quantity:500, unit:'平米',
-    provider:{name:'张经理', phone:'13500001004', org:'XX物流园'}, location:'贵港港北区', canDeliver:false, status:'available', submittedAt:new Date(Date.now()-18000000).toISOString() },
+    provider:{name:'张经理', phone:'13500001004', org:'XX物流园'}, location:'贵港港北区', coordinates:[109.60,23.10], canDeliver:false, status:'available', submittedAt:new Date(Date.now()-18000000).toISOString() },
 ];
 
 function maskP(p){ return p && p.length>=7 ? p.slice(0,3)+'****'+p.slice(-4) : p; }

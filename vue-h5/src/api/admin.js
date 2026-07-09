@@ -69,6 +69,20 @@ export function listMatches(params) {
 export function matchOffers(helpCode) {
   return http.get('/api/offers/match', { params: { help: helpCode } });
 }
+
+// ===== 调度引擎 =====
+export function getVolunteerPool(params) {
+  return http.get('/api/volunteers/pool', { params });
+}
+export function updateVolunteerStatus(uid, status) {
+  return http.put(`/api/volunteers/${uid}/status`, { status });
+}
+export function getRecommendations(helpCode) {
+  return http.get('/api/dispatch/recommend', { params: { helpCode } });
+}
+export function dispatchAssign(helpCode, volunteerUid, note) {
+  return http.post('/api/dispatch/assign', { helpCode, volunteerUid, note });
+}
 export function createMatch(body) {
   return http.post('/api/matches', body);
 }

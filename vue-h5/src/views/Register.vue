@@ -441,8 +441,13 @@ async function submit() {
   form.method = method.value;
 
   submitting.value = true;
+  // 修复:后端期望 location.coordinates:[lng,lat],H5 表单存的是 lng/lat 分量
+  const locPayload = form.location.lng != null && form.location.lat != null
+    ? { coordinates: [form.location.lng, form.location.lat], address: form.location.raw, raw: form.location.raw, accuracy: form.location.accuracy }
+    : { coordinates: [], address: form.location.raw || '', raw: form.location.raw || '' };
   const payload = {
     ...form,
+    location: locPayload,
     // 仅在选中灾种时带 formId,避免发空串
     formId: form.formId || undefined,
     formData: form.formId ? form.formData : undefined,

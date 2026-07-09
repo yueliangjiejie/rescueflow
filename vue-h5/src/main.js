@@ -52,6 +52,12 @@ const router = createRouter({
       component: () => import('./views/AdminFeed.vue'),
       beforeEnter: () => (localStorage.getItem('rf_token') ? true : '/login'),
     },
+    {
+      path: '/admin/dispatch',
+      name: 'adminDispatch',
+      component: () => import('./views/AdminDispatch.vue'),
+      beforeEnter: () => (localStorage.getItem('rf_token') ? true : '/login'),
+    },
   ],
 });
 
